@@ -12,14 +12,12 @@ char usage[] =
 "wcsTABproj reorganises spatially TAB projected data into a 2-D/3-D FITS"
 " image.\n"
 "Options:\n"
-"  -a<alt>      Specify an alternate coordinate representation (ignored if\n"
-"               there is only one).  Can also be specified as a 0-relative\n"
-"               index in the range 0 to 26, where alternates are sequenced\n"
-"               alphabetically following the primary representation.\n"
-"  -p<code>     Specify the projection for the output image. Must use the \n"
-"               standard FITS WCS codes.\n"
-"  -r<deg/pix>  Specify the resolution (in deg/pix) for the output image.\n"
-"               It will be translated in CDELT keyword.\n";
+"  -a<alt>         Specify an alternate coordinate representation (ignored if\n"
+"                  there is only one).  Can also be specified as a 0-relative\n"
+"                  index in the range 0 to 26, where alternates are sequenced\n"
+"                  alphabetically following the primary representation.\n"
+"  -h<header_name> Specify the name of the text WCS header to be used for the \n"
+"                  output image.\n";
 
 
 #include <ctype.h>
@@ -40,18 +38,21 @@ int main(int argc, char **argv)
 
 {
 
+  FILE  *hptr;
   int   i, alts[27], status, nkeyrec, hdutype, relax, ctrl, nreject, nwcs,
-        ialt, nfound;
-  long  firstpix, ipix, lastpix, naxis, *naxes = 0x0, nside = 0, repeat;
+        ialt, nfound, bitpix, nwcsout, nkeys, nn;
+  long  firstpix, ipix, lastpix, naxis, *naxes = 0x0, nside = 0, repeat,
+        offset;
 
   char  *infile;	/* Input file.                                */
   char  *outfile;	/* Output file.                               */
-  char  *alt = 0x0, *header, *proj, wcsname[72];
+  char  *alt = 0x0, *header, headfile[10], outhead[2048], headline[81],
+        wcsname[72], wcsnameout[72];
 
-  double res;
+  size_t nb;
 
-  struct wcsprm *wcs, *wcsi = 0x0;
-  fitsfile *fptr;
+  struct wcsprm *wcs, *wcsi = 0x0, *wcsout;
+  fitsfile *fptr, *fptrout;
 
   /* Initialise control variables. */
   ctrl   = -3;
@@ -61,21 +62,15 @@ int main(int argc, char **argv)
   /* Parse options. */
   for (i = 1; i < argc && argv[i][0] == '-'; i++) {
     if (!argv[i][1]) break;
-
     switch (argv[i][1]) {
     case 'a':
       /* Select an alternate WCS. */
       alt = argv[i]+2;
       break;
 
-    case 'p':
-      /* Select a projection. */
-      proj = argv[i]+2;
-      break;
-
-    case 'r':
-      /* Select a resolution. */
-      res = atof(argv[i]+2);
+    case 'h':
+      /* Output WCS header. */
+      sscanf(argv[i]+2,"%s",&headfile);
       break;
 
     default:
@@ -112,6 +107,9 @@ int main(int argc, char **argv)
     goto fitserr;
   }
   if (fits_get_hdu_type(fptr, &hdutype, &status)) goto fitserr;
+
+  /* Get the image pixel value type */
+  if (fits_get_img_type(fptr, &bitpix, &status)) goto fitserr;
 
   /* Get the image size. */
   if (fits_read_key_lng(fptr, "NAXIS", &naxis, 0x0, &status)) goto fitserr;
@@ -205,10 +203,43 @@ int main(int argc, char **argv)
   strcpy(wcsname, wcs[i].wcsname);
   printf("%s\n",wcsname);
 
+  /* Get the output WCS structure */
+  if (hptr = fopen(headfile, "r")) {
+      nkeys = 0;
+      while (fgets(headline, 81, hptr)) {
+          if ((nb = strlen(headline)) < 81) {
+              for (nn=nb-1; nn<79; nn++) {
+                  strncpy(headline+nn, " ", 1);
+              }
+              strncpy(headline+nn, "\n\0", 2);              
+          }
+          offset = nkeys * 80;
+          strncpy(outhead+offset,headline, 80);
+          nkeys++;
+      }
+      fclose(hptr);
+      if ((status = wcspih(outhead, nkeys, relax, ctrl, &nreject,
+                    &nwcsout, &wcsout))) {
+          wcsfprintf(stderr, "wcspih ERROR %d: %s.\n", status,
+                     wcshdr_errmsg[status]);
+          return 1;
+      }
+  } else {
+      fprintf(stderr, "ERROR: cannot open header file \"%s\".\n", headfile);
+  }
+
+  /* Get WCSNAME out of the wcsprm struct. */
+  //strcpy(wcsnameout, wcsout->wcsname);
+  //printf("%s\n",wcsnameout);
+
+  /* Transform coordinates */
+  
+
   fits_close_file(fptr, &status);
 
   /* Defeat spurious reporting of memory leaks. */
   wcsvfree(&nwcs, &wcs);
+  wcsvfree(&nwcsout, &wcsout);
   //free(world);
   //free(imgcrd);
   //free(pixcrd);
