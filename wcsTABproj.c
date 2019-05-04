@@ -17,7 +17,10 @@ char usage[] =
 "                  index in the range 0 to 26, where alternates are sequenced\n"
 "                  alphabetically following the primary representation.\n"
 "  -h<header_name> Specify the name of the text WCS header to be used for the \n"
-"                  output image.\n";
+"                  output image.\n"
+"  -r<resolution>  Specify the resolution of the output image (deg/px).\n"
+"  -n1<pixelnumber_x> Specify the x dimension of the output image.\n"
+"  -n2<pixelnumber_y> Specify the y dimension of the output image.\n";
 
 
 #include <ctype.h>
@@ -39,10 +42,17 @@ int main(int argc, char **argv)
 {
 
   FILE  *hptr;
-  int   i, alts[27], status, nkeyrec, hdutype, relax, ctrl, nreject, nwcs,
-        ialt, nfound, bitpix, nwcsout, nkeys, nn;
+  int   i, j, z, alts[27], *stat = 0x0, *statout = 0x0, status, nkeyrec,
+        hdutype, relax, ctrl, nreject, nwcs, nelem, *st = 0x0,
+        ialt, nfound, bitpix, nwcsout, nkeys, n, nn;
   long  firstpix, ipix, lastpix, naxis, *naxes = 0x0, nside = 0, repeat,
-        offset;
+        offset, n1 = 0, n2 = 0, n3;
+  double *imgcrd = 0x0, phi, *pixcrd = 0x0, theta, *world = 0x0, *worldin = 0x0,
+         *imgcrdout = 0x0, *pixcrdout = 0x0, res;
+
+  double *pixul = 0x0, *pixur = 0x0, *pixbl = 0x0, *pixbr = 0x0, *wul= 0x0,
+         *wur = 0x0, *wbl = 0x0, *wbr = 0x0, *imcrd = 0x0, lnmin, lnmax, lgmin,
+         lgmax;
 
   char  *infile;	/* Input file.                                */
   char  *outfile;	/* Output file.                               */
@@ -71,6 +81,30 @@ int main(int argc, char **argv)
     case 'h':
       /* Output WCS header. */
       sscanf(argv[i]+2,"%s",&headfile);
+      break;
+
+    case 'r':
+      /* Output resolution. */
+      res = atof(argv[i]+2);
+      break;
+
+    case 'n':
+      /* Output dimension. */
+      switch (argv[i][2]) {
+
+      case '1':
+        n1 = atof(argv[i]+3);
+        break;
+
+      case '2':
+        n2 = atof(argv[i]+3);
+        break;
+
+      default:
+        wcsfprintf(stderr, "%s", usage);
+        return 1;
+      }
+
       break;
 
     default:
@@ -203,8 +237,9 @@ int main(int argc, char **argv)
   strcpy(wcsname, wcs[i].wcsname);
   printf("%s\n",wcsname);
 
-  /* Get the output WCS structure */
-  if (hptr = fopen(headfile, "r")) {
+  /* Get the output WCS structure from ascii header */
+  if (headfile) {
+    if (hptr = fopen(headfile, "r")) {
       nkeys = 0;
       while (fgets(headline, 81, hptr)) {
           if ((nb = strlen(headline)) < 81) {
@@ -224,8 +259,108 @@ int main(int argc, char **argv)
                      wcshdr_errmsg[status]);
           return 1;
       }
-  } else {
+    } else {
       fprintf(stderr, "ERROR: cannot open header file \"%s\".\n", headfile);
+    }
+  }
+
+  /* Get the output WCS structure from cli */
+  if (res > 0.) {
+    wcsout->naxis = wcsi->naxis;
+    for (n=0; n<wcsout->naxis; n++) {
+      wcsout->cdelt[n] = res;
+    }
+  }
+
+  /* Get the image corners in world coordinates */
+  imcrd = realloc(imcrd, naxis * sizeof(double));
+  st = realloc(st, naxis * sizeof(int));
+
+  pixbl = realloc(pixbl, naxis * sizeof(double));
+  pixbr = realloc(pixbr, naxis * sizeof(double));
+  pixul = realloc(pixul, naxis * sizeof(double));
+  pixur = realloc(pixur, naxis * sizeof(double));
+  wbl = realloc(wbl, naxis * sizeof(double));
+  wbr = realloc(wbr, naxis * sizeof(double));
+  wul = realloc(wul, naxis * sizeof(double));
+  wur = realloc(wur, naxis * sizeof(double));
+
+  for (n = 0; n < naxis; n++) {
+    pixbl[n] = 1;
+  }
+  if ((status = wcsp2s(wcsi, 1, naxis, pixbl, imcrd, &phi, &theta,
+                               wbl, st))) {
+            wcsperr(wcsi, "");
+  } else {
+    lgmin = wbl[0];
+    lgmax = wbl[0];
+    lnmin = wbl[1];
+    lnmax = wbl[1];    
+  }
+  for (n = 0; n < naxis; n++) {
+    pixbr[n] = 1;
+  }
+  pixbr[0] = naxes[0];
+  if ((status = wcsp2s(wcsi, 1, naxis, pixbr, imcrd, &phi, &theta,
+                               wbr, st))) {
+            wcsperr(wcsi, "");
+  } else {
+    if (lgmin > wbr[0]) {
+      lgmin = wbr[0];
+    }
+    if (lgmax < wbr[0]) {
+      lgmax = wbr[0];
+    }
+    if (lnmin > wbr[1]) {
+      lnmin = wbr[1];
+    }
+    if (lnmax < wbr[1]) {
+      lnmax = wbl[1];
+    }
+  }
+  for (n = 0; n < naxis; n++) {
+    pixul[n] = 1;
+  }
+  pixul[1] = naxes[1];
+  if ((status = wcsp2s(wcsi, 1, naxis, pixul, imcrd, &phi, &theta,
+                               wul, st))) {
+            wcsperr(wcsi, "");
+  } else {
+    if (lgmin > wul[0]) {
+      lgmin = wul[0];
+    }
+    if (lgmax < wul[0]) {
+      lgmax = wul[0];
+    }
+    if (lnmin > wul[1]) {
+      lnmin = wul[1];
+    }
+    if (lnmax < wul[1]) {
+      lnmax = wul[1];
+    }
+  }
+
+  for (n = 0; n < naxis; n++) {
+    pixur[n] = 1;
+  }
+  pixur[0] = naxes[0];
+  pixur[1] = naxes[1];
+  if ((status = wcsp2s(wcsi, 1, naxis, pixur, imcrd, &phi, &theta,
+                               wur, st))) {
+            wcsperr(wcsi, "");
+  } else {
+    if (lgmin > wur[0]) {
+      lgmin = wur[0];
+    }
+    if (lgmax < wur[0]) {
+      lgmax = wur[0];
+    }
+    if (lnmin > wur[1]) {
+      lnmin = wur[1];
+    }
+    if (lnmax < wur[1]) {
+      lnmax = wur[1];
+    }
   }
 
   /* Get WCSNAME out of the wcsprm struct. */
@@ -233,6 +368,75 @@ int main(int argc, char **argv)
   //printf("%s\n",wcsnameout);
 
   /* Transform coordinates */
+  nelem = wcsout->naxis;
+
+  world  = realloc(world,  nelem * sizeof(double));
+  imgcrd = realloc(imgcrd, nelem * sizeof(double));
+  pixcrd = realloc(pixcrd, nelem * sizeof(double));
+  stat   = realloc(stat,   nelem * sizeof(int));
+  imgcrdout = realloc(imgcrdout, naxis * sizeof(double));
+  pixcrdout = realloc(pixcrdout, naxis * sizeof(double));
+  statout   = realloc(statout,   naxis * sizeof(int));
+
+  worldin  = realloc(world,  naxis * sizeof(double));
+
+  if (naxis<3) {
+     n3 = 1;
+  } else {
+     n3 = naxes[2];
+  }
+
+  if (n1<1) {
+    n1 = (long)((lgmax - lgmin) / res);
+    n2 = (long)((lnmax - lnmin) / res);
+    wcsout->crpix[0] = 0.5 + n1/2.;
+    wcsout->crpix[1] = 0.5 + n2/2.;
+    wcsout->crval[0] = (lgmax - lgmin) /2.;
+    wcsout->crval[1] = (lnmax - lnmin) /2.;
+    printf("%f\n",n2);
+  }
+
+  for (z=0; z<n3; z++) {
+    for (j=0; j<n2; j++) {
+      for (i=0; i<n1; i++) {
+          pixcrd[0] = (double)(i+1);
+          pixcrd[1] = (double)(j+1);
+          
+          if ((status = wcsp2s(wcsout, 1, nelem, pixcrd, imgcrd, &phi, &theta,
+                               world, stat))) {
+            wcsperr(wcsout, "");
+
+          } else {
+
+            wcsprintf("\nWorld: ");
+            for (n = 0; n < nelem; n++) {
+                wcsprintf("%s%14.9g", n?", ":"", world[n]);
+                worldin[n] = world[n];
+            }
+            if (n3 - 1) {
+              worldin[2] = (double)(z+1);
+            }
+            wcsprintf("\n");
+            
+            for (n = 0; n < naxis; n++) {
+                wcsprintf("%s%14.9g", n?", ":"", worldin[n]);
+            }
+            if ((status = wcss2p(wcsi, 1, naxis, worldin, &phi, &theta, imgcrdout,
+                               pixcrdout, statout))) {
+              wcsperr(wcsi, "");
+            } else {
+
+              wcsprintf("\nInput: ");
+              for (n = 0; n < naxis; n++) {
+                  wcsprintf("%s%14.9g", n?", ":"", pixcrdout[n]);
+              }
+              wcsprintf("\n");
+            }
+          }
+      
+      }
+    }
+  }
   
 
   fits_close_file(fptr, &status);
