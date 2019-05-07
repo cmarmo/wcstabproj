@@ -46,9 +46,9 @@ int main(int argc, char **argv)
         hdutype, relax, ctrl, nreject, nwcs, nelem, *st = 0x0,
         ialt, nfound, bitpix, nwcsout, nkeys, n, nn;
   long  firstpix, ipix, lastpix, naxis, *naxes = 0x0, nside = 0, repeat,
-        offset, n1 = 0, n2 = 0, n3;
+        offset, n1 = 0, n2 = 0, n3, *naxesout = 0x0;
   double *imgcrd = 0x0, phi, *pixcrd = 0x0, theta, *world = 0x0, *worldin = 0x0,
-         *imgcrdout = 0x0, *pixcrdout = 0x0, res;
+         *imgcrdout = 0x0, *pixcrdout = 0x0, res = 0.0;
 
   double *pixul = 0x0, *pixur = 0x0, *pixbl = 0x0, *pixbr = 0x0, *wul= 0x0,
          *wur = 0x0, *wbl = 0x0, *wbr = 0x0, *imcrd = 0x0, lnmin, lnmax, lgmin,
@@ -85,7 +85,7 @@ int main(int argc, char **argv)
 
     case 'r':
       /* Output resolution. */
-      res = atof(argv[i]+2);
+      res = (double)(atof(argv[i]+2));
       break;
 
     case 'n':
@@ -227,6 +227,7 @@ int main(int argc, char **argv)
   wcserr_enable(1);
   wcsprintf_set(stdout);
 
+
   /* Read -TAB arrays from the binary table extension (if necessary). */
   if (fits_read_wcstab(fptr, wcs[i].nwtb, (wtbarr *)wcs[i].wtb,
                          &status)) {
@@ -261,11 +262,13 @@ int main(int argc, char **argv)
       }
     } else {
       fprintf(stderr, "ERROR: cannot open header file \"%s\".\n", headfile);
+      return 1;
     }
   }
 
+
   /* Get the output WCS structure from cli */
-  if (res > 0.) {
+  if (res > 0.0) {
     wcsout->naxis = wcsi->naxis;
     for (n=0; n<wcsout->naxis; n++) {
       wcsout->cdelt[n] = res;
@@ -378,7 +381,7 @@ int main(int argc, char **argv)
   pixcrdout = realloc(pixcrdout, naxis * sizeof(double));
   statout   = realloc(statout,   naxis * sizeof(int));
 
-  worldin  = realloc(world,  naxis * sizeof(double));
+  worldin  = realloc(worldin,  naxis * sizeof(double));
 
   if (naxis<3) {
      n3 = 1;
@@ -387,13 +390,42 @@ int main(int argc, char **argv)
   }
 
   if (n1<1) {
-    n1 = (long)((lgmax - lgmin) / res);
-    n2 = (long)((lnmax - lnmin) / res);
-    wcsout->crpix[0] = 0.5 + n1/2.;
-    wcsout->crpix[1] = 0.5 + n2/2.;
-    wcsout->crval[0] = (lgmax - lgmin) /2.;
-    wcsout->crval[1] = (lnmax - lnmin) /2.;
-    printf("%f\n",n2);
+    if (wcsout->cdelt[0] != 0 && wcsout->cdelt[1] != 0) {
+      res = wcsout->cdelt[0];
+      if (wcsout->crpix[0] != 0. && wcsout->crpix[1] != 0.) {
+        n1 = (long)(2*wcsout->crpix[0]) - 1; 
+        n2 = (long)(2*wcsout->crpix[1]) - 1; 
+      } else {
+        n1 = (long)((lgmax - lgmin) / res);
+        res = wcsout->cdelt[1];
+        n2 = (long)((lnmax - lnmin) / res);
+        wcsout->crpix[0] = 0.5 + n1/2.;
+        wcsout->crpix[1] = 0.5 + n2/2.;
+        wcsout->crval[0] = (lgmax - lgmin) /2.;
+        wcsout->crval[1] = (lnmax - lnmin) /2.;
+      }
+    } else {
+      fprintf(stderr, "ERROR: ...");
+      return 1;      
+    }
+  }
+
+  /* Create the output file */
+  if (fits_create_file(&fptrout, outfile, &status)) {
+      fprintf(stderr, "ERROR: cannot create new file \"%s\".\n", outfile);
+      return 1;
+  } else {
+    naxesout = malloc(naxis*sizeof(long));
+    naxesout[0] = n1;
+    naxesout[1] = n2;
+    if (n3>1) {
+      naxesout[2] = n3;
+    }
+    if (fits_create_img(fptrout, bitpix, naxis, naxesout, &status)) {
+        fprintf(stderr, "ERROR: cannot create new image in \"%s\".\n", outfile);
+        return 1;
+    } else {
+    }
   }
 
   for (z=0; z<n3; z++) {
@@ -404,26 +436,22 @@ int main(int argc, char **argv)
           
           if ((status = wcsp2s(wcsout, 1, nelem, pixcrd, imgcrd, &phi, &theta,
                                world, stat))) {
-            wcsperr(wcsout, "");
+            //wcsperr(wcsout, "");
 
           } else {
 
-            wcsprintf("\nWorld: ");
+            //wcsprintf("\nWorld: ");
             for (n = 0; n < nelem; n++) {
-                wcsprintf("%s%14.9g", n?", ":"", world[n]);
+            //    wcsprintf("%s%14.9g", n?", ":"", world[n]);
                 worldin[n] = world[n];
             }
             if (n3 - 1) {
               worldin[2] = (double)(z+1);
             }
-            wcsprintf("\n");
             
-            for (n = 0; n < naxis; n++) {
-                wcsprintf("%s%14.9g", n?", ":"", worldin[n]);
-            }
             if ((status = wcss2p(wcsi, 1, naxis, worldin, &phi, &theta, imgcrdout,
                                pixcrdout, statout))) {
-              wcsperr(wcsi, "");
+              //wcsperr(wcsi, "");
             } else {
 
               wcsprintf("\nInput: ");
@@ -437,17 +465,22 @@ int main(int argc, char **argv)
       }
     }
   }
-  
 
+  fits_close_file(fptrout, &status);
   fits_close_file(fptr, &status);
 
   /* Defeat spurious reporting of memory leaks. */
   wcsvfree(&nwcs, &wcs);
   wcsvfree(&nwcsout, &wcsout);
-  //free(world);
-  //free(imgcrd);
-  //free(pixcrd);
-  //free(stat);
+  free(world);
+  free(worldin);
+  free(imgcrd);
+  free(imgcrdout);
+  free(pixcrd);
+  free(pixcrdout);
+  free(stat);
+  free(statout);
+  free(st);
 
   return 0;
 
