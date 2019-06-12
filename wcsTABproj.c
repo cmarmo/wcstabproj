@@ -48,7 +48,7 @@ int main(int argc, char **argv)
   long  firstpix, ipix, lastpix, naxis, *naxes = 0x0, nside = 0, repeat,
         offset, n1 = 0, n2 = 0, n3, *naxesout = 0x0;
   double *imgcrd = 0x0, phi, *pixcrd = 0x0, theta, *world = 0x0, *worldin = 0x0,
-         *imgcrdout = 0x0, *pixcrdout = 0x0, res = 0.0;
+         *imgcrdout = 0x0, *pixcrdout = 0x0, res = 0.0, fac;
 
   double *pixul = 0x0, *pixur = 0x0, *pixbl = 0x0, *pixbr = 0x0, *wul= 0x0,
          *wur = 0x0, *wbl = 0x0, *wbr = 0x0, *imcrd = 0x0, lnmin, lnmax, lgmin,
@@ -59,6 +59,7 @@ int main(int argc, char **argv)
   char  *alt = 0x0, *header, headfile[10], outhead[2048], headline[81],
         wcsname[72], wcsnameout[72];
 
+  void  *pImage;
   size_t nb;
 
   struct wcsprm *wcs, *wcsi = 0x0, *wcsout;
@@ -130,7 +131,7 @@ int main(int argc, char **argv)
       fprintf(stderr, "%s", usage);
       return 1;
   }
- 
+
 
   /* Open the FITS file. */
   status = 0;
@@ -236,7 +237,7 @@ int main(int argc, char **argv)
 
   /* Get WCSNAME out of the wcsprm struct. */
   strcpy(wcsname, wcs[i].wcsname);
-  printf("%s\n",wcsname);
+  //printf("%s\n",wcsname);
 
   /* Get the output WCS structure from ascii header */
   if (headfile) {
@@ -247,7 +248,7 @@ int main(int argc, char **argv)
               for (nn=nb-1; nn<79; nn++) {
                   strncpy(headline+nn, " ", 1);
               }
-              strncpy(headline+nn, "\n\0", 2);              
+              strncpy(headline+nn, "\n\0", 2);
           }
           offset = nkeys * 80;
           strncpy(outhead+offset,headline, 80);
@@ -294,11 +295,12 @@ int main(int argc, char **argv)
   if ((status = wcsp2s(wcsi, 1, naxis, pixbl, imcrd, &phi, &theta,
                                wbl, st))) {
             wcsperr(wcsi, "");
+            status=0;
   } else {
     lgmin = wbl[0];
     lgmax = wbl[0];
     lnmin = wbl[1];
-    lnmax = wbl[1];    
+    lnmax = wbl[1];
   }
   for (n = 0; n < naxis; n++) {
     pixbr[n] = 1;
@@ -307,6 +309,7 @@ int main(int argc, char **argv)
   if ((status = wcsp2s(wcsi, 1, naxis, pixbr, imcrd, &phi, &theta,
                                wbr, st))) {
             wcsperr(wcsi, "");
+            status=0;
   } else {
     if (lgmin > wbr[0]) {
       lgmin = wbr[0];
@@ -328,6 +331,7 @@ int main(int argc, char **argv)
   if ((status = wcsp2s(wcsi, 1, naxis, pixul, imcrd, &phi, &theta,
                                wul, st))) {
             wcsperr(wcsi, "");
+            status=0;
   } else {
     if (lgmin > wul[0]) {
       lgmin = wul[0];
@@ -351,6 +355,7 @@ int main(int argc, char **argv)
   if ((status = wcsp2s(wcsi, 1, naxis, pixur, imcrd, &phi, &theta,
                                wur, st))) {
             wcsperr(wcsi, "");
+            status=0;
   } else {
     if (lgmin > wur[0]) {
       lgmin = wur[0];
@@ -393,8 +398,8 @@ int main(int argc, char **argv)
     if (wcsout->cdelt[0] != 0 && wcsout->cdelt[1] != 0) {
       res = wcsout->cdelt[0];
       if (wcsout->crpix[0] != 0. && wcsout->crpix[1] != 0.) {
-        n1 = (long)(2*wcsout->crpix[0]) - 1; 
-        n2 = (long)(2*wcsout->crpix[1]) - 1; 
+        n1 = (long)(2*wcsout->crpix[0]) - 1;
+        n2 = (long)(2*wcsout->crpix[1]) - 1;
       } else {
         n1 = (long)((lgmax - lgmin) / res);
         res = wcsout->cdelt[1];
@@ -406,13 +411,13 @@ int main(int argc, char **argv)
       }
     } else {
       fprintf(stderr, "ERROR: ...");
-      return 1;      
+      return 1;
     }
   }
 
   /* Create the output file */
   if (fits_create_file(&fptrout, outfile, &status)) {
-      fprintf(stderr, "ERROR: cannot create new file \"%s\".\n", outfile);
+      fprintf(stderr, "ERROR %d: cannot create new file \"%s\".\n", status, outfile);
       return 1;
   } else {
     naxesout = malloc(naxis*sizeof(long));
@@ -425,48 +430,70 @@ int main(int argc, char **argv)
         fprintf(stderr, "ERROR: cannot create new image in \"%s\".\n", outfile);
         return 1;
     } else {
-    }
-  }
+      for (z=0; z<n3; z++) {
+        for (j=0; j<n2; j++) {
+          for (i=0; i<n1; i++) {
+            pixcrd[0] = (double)(i+1);
+            pixcrd[1] = (double)(j+1);
 
-  for (z=0; z<n3; z++) {
-    for (j=0; j<n2; j++) {
-      for (i=0; i<n1; i++) {
-          pixcrd[0] = (double)(i+1);
-          pixcrd[1] = (double)(j+1);
-          
-          if ((status = wcsp2s(wcsout, 1, nelem, pixcrd, imgcrd, &phi, &theta,
+            if ((status = wcsp2s(wcsout, 1, nelem, pixcrd, imgcrd, &phi, &theta,
                                world, stat))) {
             //wcsperr(wcsout, "");
 
-          } else {
-
-            //wcsprintf("\nWorld: ");
-            for (n = 0; n < nelem; n++) {
-            //    wcsprintf("%s%14.9g", n?", ":"", world[n]);
-                worldin[n] = world[n];
-            }
-            if (n3 - 1) {
-              worldin[2] = (double)(z+1);
-            }
-            
-            if ((status = wcss2p(wcsi, 1, naxis, worldin, &phi, &theta, imgcrdout,
-                               pixcrdout, statout))) {
-              //wcsperr(wcsi, "");
             } else {
 
-              wcsprintf("\nInput: ");
-              for (n = 0; n < naxis; n++) {
-                  wcsprintf("%s%14.9g", n?", ":"", pixcrdout[n]);
+              //wcsprintf("\nWorld: ");
+              for (n = 0; n < nelem; n++) {
+              //    wcsprintf("%s%14.9g", n?", ":"", world[n]);
+                worldin[n] = world[n];
               }
-              wcsprintf("\n");
+              if (n3 - 1) {
+                worldin[2] = (double)(z+1);
+              }
+
+              if ((status = wcss2p(wcsi, 1, naxis, worldin, &phi, &theta, imgcrdout,
+                               pixcrdout, statout))) {
+                //wcsperr(wcsi, "");
+              } else {
+
+                //wcsprintf("\nInput: ");
+                offset = 0;
+                fac = 1;
+                for (n = 0; n < naxis; n++) {
+                  //wcsprintf("%s%14.9g", n?", ":"", pixcrdout[n]);
+                  if (n) {
+                    fac *= naxes[n-1];
+                    offset += (((long)(pixcrdout[n])-1)*fac);
+                  } else {
+                    offset += (long)(pixcrdout[n]);
+                  }
+                }
+                //printf("\n%f %ld\n", fac, offset);
+                fits_read_img(fptr, bitpix, 1000, 1, NULL, pImage, NULL, &status);
+                printf("%d %f\n", status, pImage);
+                offset = 0;
+                fac = 1;
+                for (n = 0; n < naxis; n++) {
+                  //wcsprintf("%s%14.9g", n?", ":"", pixcrdout[n]);
+                  if (n) {
+                    fac *= naxes[n-1];
+                    offset += (((long)(pixcrd[n])-1)*fac);
+                  } else {
+                    offset += (long)(pixcrd[n]);
+                  }
+                }
+                fits_write_img(fptrout, bitpix, 1000, 1, pImage, &status);
+                printf("%d %f\n", status, pImage);
+                }
             }
           }
-      
+        }
       }
+
+      fits_close_file(fptrout, &status);
     }
   }
 
-  fits_close_file(fptrout, &status);
   fits_close_file(fptr, &status);
 
   /* Defeat spurious reporting of memory leaks. */
