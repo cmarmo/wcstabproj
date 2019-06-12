@@ -44,7 +44,7 @@ int main(int argc, char **argv)
   FILE  *hptr;
   int   i, j, z, alts[27], *stat = 0x0, *statout = 0x0, status, nkeyrec,
         hdutype, relax, ctrl, nreject, nwcs, nelem, *st = 0x0,
-        ialt, nfound, bitpix, nwcsout, nkeys, n, nn;
+        ialt, nfound, bitpix, nbyte, nwcsout, nkeys, n, nn;
   long  firstpix, ipix, lastpix, naxis, *naxes = 0x0, nside = 0, repeat,
         offset, n1 = 0, n2 = 0, n3, *naxesout = 0x0;
   double *imgcrd = 0x0, phi, *pixcrd = 0x0, theta, *world = 0x0, *worldin = 0x0,
@@ -145,6 +145,10 @@ int main(int argc, char **argv)
 
   /* Get the image pixel value type */
   if (fits_get_img_type(fptr, &bitpix, &status)) goto fitserr;
+  nbyte = bitpix/8;
+  if (nbyte < 0) {
+    nbyte = -nbyte;
+  } 
 
   /* Get the image size. */
   if (fits_read_key_lng(fptr, "NAXIS", &naxis, 0x0, &status)) goto fitserr;
@@ -444,7 +448,7 @@ int main(int argc, char **argv)
 
               //wcsprintf("\nWorld: ");
               for (n = 0; n < nelem; n++) {
-              //    wcsprintf("%s%14.9g", n?", ":"", world[n]);
+                //wcsprintf("%s%14.9g", n?", ":"", world[n]);
                 worldin[n] = world[n];
               }
               if (n3 - 1) {
@@ -469,7 +473,7 @@ int main(int argc, char **argv)
                   }
                 }
                 //printf("\n%f %ld\n", fac, offset);
-                fits_read_img(fptr, bitpix, 1000, 1, NULL, pImage, NULL, &status);
+                fits_read_img(fptr, bitpix, offset, nbyte, NULL, pImage, NULL, &status);
                 printf("%d %f\n", status, pImage);
                 offset = 0;
                 fac = 1;
@@ -482,7 +486,8 @@ int main(int argc, char **argv)
                     offset += (long)(pixcrd[n]);
                   }
                 }
-                fits_write_img(fptrout, bitpix, 1000, 1, pImage, &status);
+                pImage = (void *)offset;
+                fits_write_img(fptrout, bitpix, offset, nbyte, pImage, &status);
                 printf("%d %f\n", status, pImage);
                 }
             }
