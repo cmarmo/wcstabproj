@@ -46,9 +46,9 @@ int main(int argc, char **argv)
         hdutype, relax, ctrl, nreject, nwcs, nelem, *st = 0x0,
         ialt, nfound, bitpix, nbyte, nwcsout, nkeys, n, nn;
   long  firstpix, ipix, lastpix, naxis, *naxes = 0x0, nside = 0, repeat,
-        offset, n1 = 0, n2 = 0, n3, *naxesout = 0x0;
+        offset, n1 = 0, n2 = 0, n3, *naxesout = 0x0, *fpixel = 0x0;
   double *imgcrd = 0x0, phi, *pixcrd = 0x0, theta, *world = 0x0, *worldin = 0x0,
-         *imgcrdout = 0x0, *pixcrdout = 0x0, res = 0.0, fac;
+         *imgcrdout = 0x0, *pixcrdout = 0x0, res = 0.0;
 
   double *pixul = 0x0, *pixur = 0x0, *pixbl = 0x0, *pixbr = 0x0, *wul= 0x0,
          *wur = 0x0, *wbl = 0x0, *wbr = 0x0, *imcrd = 0x0, lnmin, lnmax, lgmin,
@@ -57,9 +57,9 @@ int main(int argc, char **argv)
   char  *infile;	/* Input file.                                */
   char  *outfile;	/* Output file.                               */
   char  *alt = 0x0, *header, headfile[10], outhead[2048], headline[81],
-        wcsname[72], wcsnameout[72];
+        wcsname[72], wcsnameout[72], *card, *newhead;
 
-  void  *pImage;
+  float  *pImage;
   size_t nb;
 
   struct wcsprm *wcs, *wcsi = 0x0, *wcsout;
@@ -241,7 +241,6 @@ int main(int argc, char **argv)
 
   /* Get WCSNAME out of the wcsprm struct. */
   strcpy(wcsname, wcs[i].wcsname);
-  //printf("%s\n",wcsname);
 
   /* Get the output WCS structure from ascii header */
   if (headfile) {
@@ -259,6 +258,8 @@ int main(int argc, char **argv)
           nkeys++;
       }
       fclose(hptr);
+      newhead = malloc((strlen(outhead)+1)*sizeof(char));
+      strcpy(newhead, outhead);
       if ((status = wcspih(outhead, nkeys, relax, ctrl, &nreject,
                     &nwcsout, &wcsout))) {
           wcsfprintf(stderr, "wcspih ERROR %d: %s.\n", status,
@@ -420,6 +421,7 @@ int main(int argc, char **argv)
   }
 
   /* Create the output file */
+  pImage = (float *) malloc(sizeof(float));
   if (fits_create_file(&fptrout, outfile, &status)) {
       fprintf(stderr, "ERROR %d: cannot create new file \"%s\".\n", status, outfile);
       return 1;
@@ -434,6 +436,14 @@ int main(int argc, char **argv)
         fprintf(stderr, "ERROR: cannot create new image in \"%s\".\n", outfile);
         return 1;
     } else {
+      /* Add the WCS keywords from ascii header */
+      if (newhead) {
+          while ((card = strsep(&newhead,"\n")) != NULL) {
+            if (!(strspn(card,"END"))) {
+              fits_write_record(fptrout, card, &status);        
+            }
+          }
+      }
       for (z=0; z<n3; z++) {
         for (j=0; j<n2; j++) {
           for (i=0; i<n1; i++) {
@@ -443,7 +453,7 @@ int main(int argc, char **argv)
             if ((status = wcsp2s(wcsout, 1, nelem, pixcrd, imgcrd, &phi, &theta,
                                world, stat))) {
             //wcsperr(wcsout, "");
-
+                status = 0;
             } else {
 
               //wcsprintf("\nWorld: ");
@@ -458,37 +468,25 @@ int main(int argc, char **argv)
               if ((status = wcss2p(wcsi, 1, naxis, worldin, &phi, &theta, imgcrdout,
                                pixcrdout, statout))) {
                 //wcsperr(wcsi, "");
+                status = 0;
               } else {
 
                 //wcsprintf("\nInput: ");
-                offset = 0;
-                fac = 1;
+                fpixel  = realloc(fpixel,  naxis * sizeof(long));
                 for (n = 0; n < naxis; n++) {
                   //wcsprintf("%s%14.9g", n?", ":"", pixcrdout[n]);
-                  if (n) {
-                    fac *= naxes[n-1];
-                    offset += (((long)(pixcrdout[n])-1)*fac);
-                  } else {
-                    offset += (long)(pixcrdout[n]);
-                  }
+                  fpixel[n] = pixcrdout[n];
+                  //printf("\n%d\n", fpixel[n]);
                 }
-                //printf("\n%f %ld\n", fac, offset);
-                fits_read_img(fptr, bitpix, offset, nbyte, NULL, pImage, NULL, &status);
-                printf("%d %f\n", status, pImage);
-                offset = 0;
-                fac = 1;
+                fits_read_pix(fptr, TFLOAT, fpixel, 1, NULL, pImage, NULL, &status);
+                //printf("%d %f\n", status, pImage);
                 for (n = 0; n < naxis; n++) {
-                  //wcsprintf("%s%14.9g", n?", ":"", pixcrdout[n]);
-                  if (n) {
-                    fac *= naxes[n-1];
-                    offset += (((long)(pixcrd[n])-1)*fac);
-                  } else {
-                    offset += (long)(pixcrd[n]);
-                  }
+                  fpixel[n] = pixcrd[n];
+                  if (n==2) fpixel[n] = pixcrdout[n];
+                  //printf("\n%d\n", fpixel[n]);
                 }
-                pImage = (void *)offset;
-                fits_write_img(fptrout, bitpix, offset, nbyte, pImage, &status);
-                printf("%d %f\n", status, pImage);
+                fits_write_pix(fptrout, TFLOAT, fpixel, 1, pImage, &status);
+                //printf("%d %f\n", status, pImage);
                 }
             }
           }
